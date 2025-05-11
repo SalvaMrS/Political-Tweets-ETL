@@ -1,5 +1,7 @@
 from elasticsearch import Elasticsearch, exceptions
 from logger import setup_logger
+import json
+from pathlib import Path
 
 logger = setup_logger("elasticsearch_service")
 
@@ -11,24 +13,39 @@ ES_MAPPING = {
         "properties": {
             "id": {"type": "keyword"},
             "user": {
-                "username": {"type": "keyword"},
-                "handle": {"type": "keyword"},
-                "verified": {"type": "boolean"}
+                "type": "object",
+                "properties": {
+                    "username": {"type": "keyword"},
+                    "handle": {"type": "keyword"},
+                    "verified": {"type": "boolean"}
+                }
             },
             "meta": {
-                "created_at": {"type": "date"},
-                "hashtags": {"type": "keyword"}
+                "type": "object",
+                "properties": {
+                    "created_at": {"type": "date"},
+                    "hashtags": {"type": "keyword"}
+                }
             },
             "payload": {
-                "tweet": {
-                    "content": {"type": "text"}
+                "type": "object",
+                "properties": {
+                    "tweet": {
+                        "type": "object",
+                        "properties": {
+                            "content": {"type": "text"}
+                        }
+                    }
                 }
             },
             "metrics": {
-                "retweets": {"type": "long"},
-                "likes": {"type": "long"},
-                "emotion": {"type": "keyword"},
-                "stance": {"type": "keyword"}
+                "type": "object",
+                "properties": {
+                    "retweets": {"type": "long"},
+                    "likes": {"type": "long"},
+                    "emotion": {"type": "keyword"},
+                    "stance": {"type": "keyword"}
+                }
             }
         }
     }
@@ -50,11 +67,38 @@ def get_es_client():
         raise
 
 
+def load_initial_data(es: Elasticsearch):
+    try:
+        json_path = Path("tweets_dataset.json")
+        if not json_path.exists():
+            logger.warning("Archivo tweets_dataset.json no encontrado")
+            return
+
+        with open(json_path, 'r') as f:
+            tweets = json.load(f)
+
+        indexed_count = 0
+        for tweet in tweets:
+            try:
+                es.index(index=INDEX_NAME, document=tweet)
+                indexed_count += 1
+            except Exception as e:
+                logger.error(f"Error al indexar tweet {tweet.get('id')}: {str(e)}")
+                continue
+
+        logger.info(f"Se cargaron {indexed_count} tweets exitosamente")
+    except Exception as e:
+        logger.error(f"Error al cargar datos iniciales: {str(e)}")
+        raise
+
+
 def ensure_index(es: Elasticsearch):
     try:
         if not es.indices.exists(index=INDEX_NAME):
             es.indices.create(index=INDEX_NAME, body=ES_MAPPING)
             logger.info(f"Índice '{INDEX_NAME}' creado exitosamente")
+            # Cargar datos iniciales solo si se creó el índice
+            load_initial_data(es)
         else:
             logger.info(f"Índice '{INDEX_NAME}' ya existe")
     except Exception as e:
@@ -64,16 +108,6 @@ def ensure_index(es: Elasticsearch):
 
 def index_tweet(es: Elasticsearch, tweet_data: dict):
     try:
-        # Asegurarse de que los campos emotion y stance existan en metrics
-        if "metrics" not in tweet_data:
-            tweet_data["metrics"] = {}
-        
-        if "emotion" not in tweet_data["metrics"]:
-            tweet_data["metrics"]["emotion"] = None
-        
-        if "stance" not in tweet_data["metrics"]:
-            tweet_data["metrics"]["stance"] = None
-
         response = es.index(index=INDEX_NAME, document=tweet_data)
         logger.info(f"Tweet indexado exitosamente con ID: {response['_id']}")
         return response

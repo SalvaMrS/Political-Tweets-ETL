@@ -2,10 +2,25 @@ from elasticsearch import Elasticsearch, exceptions
 from logger import setup_logger
 import json
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
 
 logger = setup_logger("elasticsearch_service")
 
-INDEX_NAME = "tweets"
+# Obtener variables de entorno
+INDEX_NAME = os.getenv("ES_INDEX")
+ES_HOST = os.getenv("ES_HOST")
+ES_USER = os.getenv("ES_USER")
+ES_PASSWORD = os.getenv("ES_PASSWORD")
+ES_VERIFY_CERTS = os.getenv("ES_VERIFY_CERTS") == "true"
+ES_SSL_WARN = os.getenv("ES_SSL_WARN") == "true"
+
+# Verificar variables requeridas
+if not all([INDEX_NAME, ES_HOST]):
+    raise ValueError("Las variables ES_INDEX y ES_HOST son requeridas en el archivo .env")
 
 ES_MAPPING = {
     "settings": {},
@@ -54,11 +69,12 @@ ES_MAPPING = {
 
 def get_es_client():
     try:
+        auth = (ES_USER, ES_PASSWORD) if ES_USER and ES_PASSWORD else None
         es = Elasticsearch(
-            hosts=["http://localhost:9200"],
-            verify_certs=False,
-            basic_auth=None,
-            ssl_show_warn=False
+            hosts=[ES_HOST],
+            verify_certs=ES_VERIFY_CERTS,
+            basic_auth=auth,
+            ssl_show_warn=ES_SSL_WARN
         )
         logger.info("Cliente de Elasticsearch creado exitosamente")
         return es

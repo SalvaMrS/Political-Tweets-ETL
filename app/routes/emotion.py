@@ -1,15 +1,26 @@
-from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+"""
+Endpoint para el análisis de emociones en tweets.
+Proporciona funcionalidad para analizar y clasificar las emociones en tweets almacenados en Elasticsearch.
+"""
+
+from fastapi import APIRouter, HTTPException, Query, Body
+from typing import Optional, Dict, Any, List
 from datetime import datetime, time
-import time as time_lib
+import time
 from transformers import pipeline
 from elasticsearch_service import get_es_client, INDEX_NAME
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import logging
 
+# Configuración del logger
 logger = logging.getLogger(__name__)
 
+# Inicialización del router
 router = APIRouter()
+
+# Constantes
+DEFAULT_LIMIT = 10000
+DATE_FORMAT = "%Y-%m-%d"
 
 # Inicializar el clasificador de emociones
 emotion_classifier = pipeline(
@@ -18,8 +29,50 @@ emotion_classifier = pipeline(
     return_all_scores=True
 )
 
+class EmotionRequest(BaseModel):
+    """
+    Modelo de request para el endpoint de emociones.
+    
+    Attributes:
+        start_date (Optional[str]): Fecha de inicio para filtrar tweets (YYYY-MM-DD)
+        end_date (Optional[str]): Fecha final para filtrar tweets (YYYY-MM-DD)
+        limit (Optional[int]): Número máximo de tweets a procesar
+    """
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    limit: Optional[int] = Field(None, gt=0)
+
 class EmotionResponse(BaseModel):
+    """
+    Modelo de respuesta para el endpoint de emociones.
+    
+    Attributes:
+        message (str): Mensaje descriptivo del resultado del procesamiento
+        processed (int): Número de tweets procesados exitosamente
+    """
     message: str
+    processed: int
+
+def validate_date(date_str: Optional[str], is_start: bool = True) -> None:
+    """
+    Valida el formato de una fecha en formato YYYY-MM-DD.
+    
+    Args:
+        date_str (Optional[str]): Fecha a validar
+        is_start (bool): Indica si es la fecha inicial (para mensaje de error)
+        
+    Raises:
+        HTTPException: Si el formato de la fecha es inválido
+    """
+    if date_str:
+        try:
+            datetime.strptime(date_str, DATE_FORMAT)
+        except ValueError:
+            date_type = "inicial" if is_start else "final"
+            raise HTTPException(
+                status_code=422,
+                detail=f"Formato de fecha {date_type} inválido. Use el formato YYYY-MM-DD"
+            )
 
 @router.post(
     "/emotion",
@@ -37,73 +90,64 @@ class EmotionResponse(BaseModel):
     - Rango de fechas (start_date y end_date en formato YYYY-MM-DD)
     - Cantidad máxima de tweets a procesar (limit)
     """,
-    response_description="Mensaje con el resumen del procesamiento"
+    response_description="Mensaje con el resumen del procesamiento y número de tweets procesados"
 )
 async def analyze_emotions(
-    start_date: Optional[str] = Query(
+    request: EmotionRequest = Body(
         None,
-        description="Fecha de inicio para filtrar tweets (formato YYYY-MM-DD)",
-        example="2024-03-14",
-        regex="^\\d{4}-\\d{2}-\\d{2}$"
-    ),
-    end_date: Optional[str] = Query(
-        None,
-        description="Fecha final para filtrar tweets (formato YYYY-MM-DD)",
-        example="2024-03-14",
-        regex="^\\d{4}-\\d{2}-\\d{2}$"
-    ),
-    limit: Optional[int] = Query(
-        None,
-        description="Número máximo de tweets a procesar",
-        example=100,
-        gt=0
+        description="Parámetros de filtrado para el análisis de emociones",
+        example={
+            "start_date": "2024-03-14",
+            "end_date": "2024-03-15",
+            "limit": 100
+        }
     )
-):
-    # Validar y ajustar fechas
-    def adjust_date(date_str: Optional[str], is_end: bool = False) -> Optional[str]:
-        if date_str is None:
-            return None
-        try:
-            # Parsear la fecha
-            date = datetime.strptime(date_str, "%Y-%m-%d")
-            # Agregar tiempo (23:59:59 para end_date, 00:00:00 para start_date)
-            if is_end:
-                date = datetime.combine(date.date(), time(23, 59, 59))
-            else:
-                date = datetime.combine(date.date(), time(0, 0, 0))
-            return date.isoformat()
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="Formato de fecha inválido. Use el formato YYYY-MM-DD"
-            )
-
-    # Ajustar las fechas con el tiempo correspondiente
-    start_datetime = adjust_date(start_date, False)
-    end_datetime = adjust_date(end_date, True)
-
+) -> EmotionResponse:
+    """
+    Analiza las emociones en los tweets almacenados en Elasticsearch.
+    
+    Args:
+        request (EmotionRequest): Parámetros de filtrado para el análisis
+        
+    Returns:
+        EmotionResponse: Mensaje con el resumen del procesamiento y número de tweets procesados
+        
+    Raises:
+        HTTPException: Si hay errores en el formato de fechas o en el procesamiento
+    """
     try:
+        # Si no se proporciona un objeto de solicitud, crear uno vacío
+        if request is None:
+            request = EmotionRequest()
+        
+        # Validar formato de fechas
+        validate_date(request.start_date, True)
+        validate_date(request.end_date, False)
+        
         es_client = get_es_client()
-        start_time = time_lib.time()
+        start_time = time.time()
         
         # Construir la consulta de Elasticsearch
         query = {"match_all": {}}
-        if start_datetime or end_datetime:
-            query = {
-                "range": {
-                    "meta.created_at": {
-                        "gte": start_datetime if start_datetime else None,
-                        "lte": end_datetime if end_datetime else None
-                    }
-                }
-            }
+        if request.start_date or request.end_date:
+            range_query = {"range": {"meta.created_at": {}}}
+            
+            if request.start_date:
+                range_query["range"]["meta.created_at"]["gte"] = f"{request.start_date}T00:00:00"
+            
+            if request.end_date:
+                range_query["range"]["meta.created_at"]["lte"] = f"{request.end_date}T23:59:59"
+            
+            query = range_query
+        
+        logger.info(f"Consulta construida: {query}")
         
         # Obtener tweets
         search_params = {
             "index": INDEX_NAME,
             "query": query,
-            "_source": ["payload.tweet.content", "id", "metrics"],
-            "size": limit if limit else 10000
+            "_source": ["payload.tweet.content", "id", "metrics", "meta", "user"],
+            "size": request.limit if request.limit else DEFAULT_LIMIT
         }
         
         logger.info(f"Buscando tweets con parámetros: {search_params}")
@@ -113,7 +157,10 @@ async def analyze_emotions(
         logger.info(f"Se encontraron {len(hits)} tweets")
         
         if not hits:
-            return EmotionResponse(message="No se encontraron tweets en el rango de fechas especificado.")
+            return EmotionResponse(
+                message="No se encontraron tweets en el rango de fechas especificado.",
+                processed=0
+            )
         
         # Procesar tweets
         successful_updates = 0
@@ -122,7 +169,7 @@ async def analyze_emotions(
         for hit in hits:
             try:
                 tweet = hit['_source']
-                logger.info(f"Procesando tweet: {tweet}")
+                logger.info(f"Procesando tweet con ID: {hit['_id']}")
                 content = tweet['payload']['tweet']['content']
                 
                 # Analizar emociones
@@ -152,42 +199,28 @@ async def analyze_emotions(
                 update_params = {
                     "index": INDEX_NAME,
                     "id": hit['_id'],
-                    "body": {
-                        "doc": doc
-                    },
-                    "refresh": True
+                    "doc": doc
                 }
                 
-                logger.info(f"Actualizando tweet {hit['_id']} con emociones: {doc}")
-                response = es_client.update(**update_params)
-                logger.info(f"Respuesta de actualización: {response}")
-                
-                if response.get('result') == 'updated':
-                    successful_updates += 1
-                else:
-                    logger.error(f"Error al actualizar tweet {hit['_id']}: {response}")
+                logger.info(f"Actualizando tweet con ID: {hit['_id']}")
+                es_client.update(**update_params)
+                successful_updates += 1
                 
             except Exception as e:
-                logger.error(f"Error procesando tweet {hit.get('_id', 'unknown')}: {str(e)}")
+                logger.error(f"Error al procesar tweet {hit['_id']}: {str(e)}")
                 continue
         
-        execution_time = time_lib.time() - start_time
+        end_time = time.time()
+        processing_time = end_time - start_time
         
-        if successful_updates == total_tweets:
-            return EmotionResponse(
-                message=f"Clasificación completada con éxito: {successful_updates} tweets procesados en {execution_time:.2f} segundos."
-            )
-        else:
-            return EmotionResponse(
-                message=f"Clasificación parcial: {successful_updates} de {total_tweets} tweets fueron procesados correctamente. Revisa los logs para más detalles."
-            )
-            
+        return EmotionResponse(
+            message=f"Procesamiento completado. {successful_updates} de {total_tweets} tweets actualizados en {processing_time:.2f} segundos.",
+            processed=successful_updates
+        )
+        
+    except HTTPException as e:
+        # Propagar errores HTTP directamente
+        raise e
     except Exception as e:
-        logger.error(f"Error en el endpoint: {str(e)}")
-        if "ConnectionError" in str(e):
-            raise HTTPException(status_code=503, detail={
-                "message": "Error: no se pudo conectar con Elasticsearch."
-            })
-        raise HTTPException(status_code=500, detail={
-            "message": f"Error inesperado durante el procesamiento: {str(e)}"
-        }) 
+        logger.error(f"Error en el procesamiento: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) 

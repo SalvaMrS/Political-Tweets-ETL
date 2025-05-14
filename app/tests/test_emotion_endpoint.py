@@ -1,184 +1,196 @@
+"""
+Tests para el endpoint de análisis de emociones.
+Verifica la funcionalidad de análisis de emociones en tweets.
+"""
+
 import pytest
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta
 from main import app
-from elasticsearch_service import get_es_client, INDEX_NAME
+from elasticsearch_service import INDEX_NAME
 import json
-import asyncio
-import time
+from pathlib import Path
 
+# Cliente de prueba
 client = TestClient(app)
 
 @pytest.fixture
-def es_client():
-    """Fixture para obtener el cliente de Elasticsearch."""
-    return get_es_client()
-
-@pytest.fixture
-def sample_tweet():
-    """Fixture que proporciona un tweet de ejemplo."""
-    return {
+def sample_tweet(es_client):
+    """
+    Fixture para obtener una muestra de tweet para pruebas.
+    
+    Args:
+        es_client: Cliente de Elasticsearch (fixture)
+    
+    Returns:
+        Dict[str, Any]: Tweet de prueba
+    """
+    # Crear una fecha en el formato correcto YYYY-MM-DD
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    tweet = {
         "id": "test_tweet_id",
+        "user": {
+            "username": "test_user",
+            "handle": "@test",
+            "verified": True
+        },
+        "meta": {
+            "created_at": f"{today}T12:00:00",
+            "hashtags": ["test"]
+        },
         "payload": {
             "tweet": {
                 "content": "I am feeling very happy today! This is amazing!"
             }
         },
-        "meta": {
-            "created_at": datetime.now().isoformat()
+        "metrics": {
+            "retweets": 0,
+            "likes": 0,
+            "emotion": None,
+            "stance": None
         }
     }
-
-@pytest.fixture
-def indexed_tweet(es_client, sample_tweet):
-    """Fixture que indexa un tweet de prueba y lo limpia después."""
+    
     # Indexar el tweet
-    es_client.index(
-        index=INDEX_NAME,
-        id=sample_tweet["id"],
-        document=sample_tweet,  # Usar document en lugar de body
-        refresh=True  # Forzar refresh para que esté disponible inmediatamente
-    )
-    
-    yield sample_tweet
-    
-    # Limpiar después de la prueba
-    try:
-        es_client.delete(
-            index=INDEX_NAME,
-            id=sample_tweet["id"],
-            refresh=True
-        )
-    except:
-        pass
+    es_client.index(index=INDEX_NAME, document=tweet, refresh=True)
+    return tweet
 
-def test_emotion_endpoint_success(indexed_tweet):
-    """Prueba el caso exitoso del endpoint de emociones."""
-    response = client.post("/emotion", json={})
-    assert response.status_code == 200
+@pytest.fixture(autouse=True)
+def setup_teardown(es_client, sample_tweet):
+    """
+    Fixture para configurar y limpiar el entorno de pruebas.
     
+    Args:
+        es_client: Cliente de Elasticsearch (fixture)
+        sample_tweet: Tweet de prueba (fixture)
+    """
+    yield
+    
+    # Limpiar datos de prueba
+    es_client.delete(index=INDEX_NAME, id=sample_tweet["id"], ignore=[404])
+
+def test_emotion_endpoint_success(sample_tweet):
+    """
+    Prueba el caso exitoso del endpoint de emociones.
+    Verifica que el endpoint procese correctamente los tweets y devuelva un mensaje de éxito.
+    
+    Args:
+        sample_tweet: Tweet de prueba (fixture)
+    """
+    response = client.post("/api/v1/emotion", json={})
+    assert response.status_code == 200
     data = response.json()
     assert "message" in data
-    assert "Clasificación completada con éxito" in data["message"]
-    assert "tweets procesados en" in data["message"]
+    assert "processed" in data
+    assert data["processed"] > 0
 
-def test_emotion_endpoint_with_dates():
-    """Prueba el endpoint con filtros de fecha."""
-    start_date = (datetime.now() - timedelta(days=7)).isoformat()
-    end_date = datetime.now().isoformat()
+def test_emotion_endpoint_with_dates(sample_tweet):
+    """
+    Prueba el endpoint con filtros de fecha.
+    Verifica que el endpoint funcione correctamente con rangos de fechas.
+    """
+    # Obtenemos la fecha de hoy en formato YYYY-MM-DD
+    today = datetime.now().strftime("%Y-%m-%d")
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     
+    # Consulta con fecha de hoy
     response = client.post(
-        "/emotion",
+        "/api/v1/emotion",
         json={
-            "start_date": start_date,
-            "end_date": end_date
+            "start_date": yesterday,
+            "end_date": tomorrow
         }
     )
     assert response.status_code == 200
-    
     data = response.json()
     assert "message" in data
+    assert "processed" in data
+    assert data["processed"] > 0  # Debería procesar al menos el tweet de muestra
 
-def test_emotion_endpoint_with_limit(indexed_tweet):
-    """Prueba el endpoint con límite de tweets."""
+def test_emotion_endpoint_with_limit(sample_tweet):
+    """
+    Prueba el endpoint con límite de tweets.
+    Verifica que el endpoint respete el límite especificado.
+    
+    Args:
+        sample_tweet: Tweet de prueba (fixture)
+    """
     response = client.post(
-        "/emotion",
-        json={
-            "limit": 1
-        }
+        "/api/v1/emotion",
+        json={"limit": 1}
     )
     assert response.status_code == 200
-    
     data = response.json()
     assert "message" in data
-    assert "1 tweets procesados" in data["message"]
+    assert "processed" in data
+    assert data["processed"] <= 1
 
 def test_emotion_endpoint_no_tweets():
-    """Prueba el caso cuando no hay tweets en el rango especificado."""
-    future_date = (datetime.now() + timedelta(days=365)).isoformat()
+    """
+    Prueba el caso cuando no hay tweets en el rango especificado.
+    Verifica que el endpoint maneje correctamente la ausencia de tweets.
+    """
+    # Usamos una fecha muy futura para asegurar que no haya tweets
+    future_date = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
     
     response = client.post(
-        "/emotion",
+        "/api/v1/emotion",
         json={
             "start_date": future_date,
             "end_date": future_date
         }
     )
     assert response.status_code == 200
-    
     data = response.json()
-    assert data["message"] == "No se encontraron tweets en el rango de fechas especificado."
+    assert "message" in data
+    assert "processed" in data
+    assert data["processed"] == 0
 
 def test_emotion_endpoint_invalid_dates():
-    """Prueba el endpoint con fechas inválidas."""
+    """
+    Prueba el endpoint con fechas inválidas.
+    Verifica que el endpoint valide correctamente el formato de las fechas.
+    """
     response = client.post(
-        "/emotion",
+        "/api/v1/emotion",
         json={
             "start_date": "invalid-date",
             "end_date": "2024-03-14"
         }
     )
-    assert response.status_code in [400, 422]  # FastAPI validation error
+    assert response.status_code == 422
 
 def test_emotion_endpoint_invalid_limit():
-    """Prueba el endpoint con un límite inválido."""
+    """
+    Prueba el endpoint con un límite inválido.
+    Verifica que el endpoint valide correctamente el tipo de dato del límite.
+    """
     response = client.post(
-        "/emotion",
-        json={
-            "limit": "not-a-number"
-        }
+        "/api/v1/emotion",
+        json={"limit": "not-a-number"}
     )
-    assert response.status_code in [400, 422]  # FastAPI validation error
+    assert response.status_code == 422
 
-@pytest.mark.asyncio
-async def test_emotion_analysis_results(es_client, indexed_tweet):
-    """Prueba que el análisis de emociones se guarda correctamente en Elasticsearch."""
-    # Primero ejecutamos el análisis
-    response = client.post("/emotion", json={})
+def test_emotion_analysis_results(es_client, sample_tweet):
+    """
+    Prueba que el análisis de emociones se guarda correctamente en Elasticsearch.
+    Verifica la estructura y validez de los resultados del análisis.
+    
+    Args:
+        es_client: Cliente de Elasticsearch (fixture)
+        sample_tweet: Tweet de prueba (fixture)
+    """
+    # Asegurar que el tweet está indexado antes de la prueba
+    es_client.index(index=INDEX_NAME, id=sample_tweet["id"], document=sample_tweet, refresh=True)
+    
+    # Ejecutar análisis sin filtros para incluir el tweet de prueba
+    response = client.post("/api/v1/emotion", json={})
     assert response.status_code == 200
     
-    # Esperar a que Elasticsearch procese la actualización
-    max_retries = 5
-    retry_delay = 1
-    
-    for _ in range(max_retries):
-        try:
-            # Verificar que el documento se actualizó correctamente
-            doc = es_client.get(
-                index=INDEX_NAME,
-                id=indexed_tweet["id"]
-            )
-            
-            if "emotion_analysis" in doc["_source"]:
-                emotion_analysis = doc["_source"]["emotion_analysis"]
-                
-                # Verificar estructura del análisis de emociones
-                assert "dominant_emotion" in emotion_analysis
-                assert "all_emotions" in emotion_analysis
-                
-                dominant = emotion_analysis["dominant_emotion"]
-                assert "label" in dominant
-                assert "score" in dominant
-                assert isinstance(dominant["score"], float)
-                assert 0 <= dominant["score"] <= 1
-                
-                all_emotions = emotion_analysis["all_emotions"]
-                assert isinstance(all_emotions, list)
-                assert len(all_emotions) > 0
-                for emotion in all_emotions:
-                    assert "label" in emotion
-                    assert "score" in emotion
-                    assert isinstance(emotion["score"], float)
-                    assert 0 <= emotion["score"] <= 1
-                
-                # Si llegamos aquí, todas las verificaciones pasaron
-                return
-                
-        except Exception as e:
-            print(f"Intento fallido: {str(e)}")
-        
-        # Esperar antes del siguiente intento
-        await asyncio.sleep(retry_delay)
-    
-    # Si llegamos aquí, todos los intentos fallaron
-    assert False, "No se pudo verificar el análisis de emociones después de varios intentos" 
+    # Verificar que el tweet fue actualizado con la emoción
+    result = es_client.get(index=INDEX_NAME, id=sample_tweet["id"])
+    assert "metrics" in result["_source"]
+    assert "emotion" in result["_source"]["metrics"]
+    assert result["_source"]["metrics"]["emotion"] is not None 

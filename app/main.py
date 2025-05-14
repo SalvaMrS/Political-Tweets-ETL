@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from elasticsearch_service import get_es_client, ensure_index, index_tweet
 from logger import setup_logger
 from routes.tweets import router as tweets_router
+from routes.emotion import router as emotion_router
 import time
 import json
 from pathlib import Path
@@ -26,8 +27,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Incluir el router de tweets
+# Incluir los routers
 app.include_router(tweets_router)
+app.include_router(emotion_router)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):

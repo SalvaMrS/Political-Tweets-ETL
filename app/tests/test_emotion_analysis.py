@@ -1,18 +1,39 @@
+"""
+Tests para el análisis de emociones en tweets.
+Verifica el funcionamiento del clasificador de emociones y la estructura de sus resultados.
+"""
+
 import pytest
 import os
 import json
 from datetime import datetime
 from elasticsearch_service import get_es_client, INDEX_NAME
 from transformers import pipeline
+from typing import Dict, Any, List
+
+# Constantes para pruebas
+SAMPLE_SIZE = 5  # Número de tweets a usar en las pruebas
+RESULTS_DIR = os.path.join('tests', 'results')
 
 @pytest.fixture
 def es_client():
-    """Fixture para obtener el cliente de Elasticsearch."""
+    """
+    Fixture para obtener el cliente de Elasticsearch.
+    
+    Returns:
+        Elasticsearch: Cliente configurado para las pruebas
+    """
     return get_es_client()
 
 @pytest.fixture
 def emotion_classifier():
-    """Fixture para el clasificador de emociones."""
+    """
+    Fixture para el clasificador de emociones.
+    Inicializa el modelo de clasificación de emociones.
+    
+    Returns:
+        Pipeline: Clasificador de emociones configurado
+    """
     return pipeline(
         "text-classification",
         model="j-hartmann/emotion-english-distilroberta-base",
@@ -20,25 +41,44 @@ def emotion_classifier():
     )
 
 @pytest.fixture
-def sample_tweets(es_client):
-    """Fixture para obtener una muestra de tweets para pruebas."""
+def sample_tweets(es_client) -> List[Dict[str, Any]]:
+    """
+    Fixture para obtener una muestra de tweets para pruebas.
+    
+    Args:
+        es_client: Cliente de Elasticsearch (fixture)
+        
+    Returns:
+        List[Dict[str, Any]]: Lista de tweets para pruebas
+    """
     result = es_client.search(
         index=INDEX_NAME,
         body={
-            "query": {
-                "match_all": {}
-            },
-            "size": 5  # Limitamos a 5 tweets para pruebas
+            "query": {"match_all": {}},
+            "size": SAMPLE_SIZE
         }
     )
     return result['hits']['hits']
 
 def test_emotion_classifier_setup(emotion_classifier):
-    """Prueba la configuración del clasificador de emociones."""
+    """
+    Prueba la configuración del clasificador de emociones.
+    Verifica que el clasificador se haya inicializado correctamente.
+    
+    Args:
+        emotion_classifier: Clasificador de emociones (fixture)
+    """
     assert emotion_classifier is not None, "El clasificador de emociones no se configuró correctamente"
 
 def test_emotion_analysis_on_tweets(emotion_classifier, sample_tweets):
-    """Prueba el análisis de emociones en una muestra de tweets."""
+    """
+    Prueba el análisis de emociones en una muestra de tweets.
+    Verifica que el clasificador procese correctamente cada tweet y devuelva resultados válidos.
+    
+    Args:
+        emotion_classifier: Clasificador de emociones (fixture)
+        sample_tweets: Lista de tweets para analizar (fixture)
+    """
     assert sample_tweets, "No se encontraron tweets para analizar"
     
     for hit in sample_tweets:
@@ -60,7 +100,14 @@ def test_emotion_analysis_on_tweets(emotion_classifier, sample_tweets):
             assert 0 <= emotion['score'] <= 1, "El score debe estar entre 0 y 1"
 
 def test_emotion_analysis_results_structure(emotion_classifier, sample_tweets):
-    """Prueba la estructura de los resultados del análisis de emociones."""
+    """
+    Prueba la estructura de los resultados del análisis de emociones.
+    Verifica que los resultados tengan el formato esperado y contengan todos los campos necesarios.
+    
+    Args:
+        emotion_classifier: Clasificador de emociones (fixture)
+        sample_tweets: Lista de tweets para analizar (fixture)
+    """
     results = []
     
     for hit in sample_tweets:
@@ -110,7 +157,14 @@ def test_emotion_analysis_results_structure(emotion_classifier, sample_tweets):
         assert len(all_emotions) > 0, "Debe haber al menos una emoción en all_emotions"
 
 def test_emotion_analysis_results_persistence(emotion_classifier, sample_tweets):
-    """Prueba la persistencia de los resultados del análisis."""
+    """
+    Prueba la persistencia de los resultados del análisis.
+    Verifica que los resultados se guarden correctamente en un archivo JSON.
+    
+    Args:
+        emotion_classifier: Clasificador de emociones (fixture)
+        sample_tweets: Lista de tweets para analizar (fixture)
+    """
     results = []
     
     for hit in sample_tweets:
@@ -139,12 +193,11 @@ def test_emotion_analysis_results_persistence(emotion_classifier, sample_tweets)
         results.append(result)
     
     # Crear directorio results si no existe
-    results_dir = os.path.join('tests', 'results')
-    os.makedirs(results_dir, exist_ok=True)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
     
     # Generar nombre de archivo con timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(results_dir, f"test_emotion_analysis_{timestamp}.json")
+    output_file = os.path.join(RESULTS_DIR, f"test_emotion_analysis_{timestamp}.json")
     
     # Guardar resultados
     with open(output_file, 'w', encoding='utf-8') as f:

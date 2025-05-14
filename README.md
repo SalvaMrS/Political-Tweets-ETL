@@ -1,41 +1,120 @@
 # Political-Tweets-ETL
-Political-Tweets ETL is a FastAPI-based application that extracts political tweets, classifies their emotional tone using a Hugging Face model, optionally detects stance using a lightweight LLM, and stores everything in Elasticsearch for easy retrieval and analysis.
 
-## Data Analysis (`analisis_datos.ipynb`)
-The Jupyter notebook `analisis_datos.ipynb` performs several steps to clean, analyze, and visualize the tweet data.
+Este proyecto implementa un sistema de ETL (Extract, Transform, Load) para tweets políticos, con capacidades de análisis de emociones y posturas (stance). La aplicación está construida con FastAPI y Elasticsearch.
 
-### 1. Importing Libraries
-The notebook begins by importing necessary Python libraries for data manipulation and visualization:
-- `pandas` for data handling.
-- `matplotlib.pyplot` for plotting.
-- `seaborn` for enhanced visualizations.
+## Estructura del Proyecto
 
-### 2. Data Loading
-- Tweet data is loaded from the `tweets_dataset.json` file into a pandas DataFrame.
+El proyecto está organizado en varios grupos de archivos, cada uno con funcionalidades específicas:
 
-### 3. Data Transformation
-- The nested JSON structure of the raw data is flattened.
-- Relevant columns are selected: `id`, `user.handle`, `meta.created_at`, `meta.hashtags`, and `payload.tweet.content`.
-- These columns are renamed for clarity and ease of use (e.g., `user.handle` to `handle`, `meta.created_at` to `created_at`, `meta.hashtags` to `hashtags`, `payload.tweet.content` to `content`).
+### Componentes Principales (Core)
 
-### 4. Initial Data Exploration
-- The data types of the columns are checked.
-- The dataset is inspected for missing (null) values.
+- **main.py**: Punto de entrada de la aplicación. Configura FastAPI, registra los routers, middleware y documentación Swagger.
+- **logger.py**: Implementa un sistema de logging personalizado para toda la aplicación.
+- **elasticsearch_service.py**: Proporciona servicios de conexión y operación con Elasticsearch, incluyendo inicialización de índices.
 
-### 5. Data Cleaning
-- It's confirmed that there are no null values in the selected columns.
-- The `created_at` column is converted from a string format to a datetime object, which facilitates time-based analysis.
+### Endpoints y Rutas (Routes)
 
-### 6. Data Visualization
-- **Hashtag Analysis**:
-    - The occurrences of each hashtag are counted.
-    - A bar plot is generated to visualize the frequency of the most common hashtags.
+- **routes/tweets.py**: Implementa el endpoint para obtener tweets con filtrado por fechas y paginación.
+  - Permite filtrar tweets por rango de fechas (formato YYYY-MM-DD)
+  - Soporta paginación mediante el parámetro `limit`
+  - Estructura de respuesta estandarizada con metadatos
 
-### 7. Tweet Length Analysis
-- The length of the content for each tweet is calculated.
-- Statistical measures (mean, minimum, maximum) of tweet lengths are computed and displayed.
-- A histogram is plotted to show the distribution of tweet lengths.
+- **routes/emotion.py**: Implementa el endpoint para análisis de emociones en tweets.
+  - Utiliza un modelo de clasificación de emociones basado en transformers
+  - Procesa tweets dentro de un rango de fechas especificado
+  - Actualiza documentos en Elasticsearch con los resultados del análisis
 
-### 8. Data Export
-- The cleaned and processed DataFrame is exported to a CSV file named `tweets_dataset.csv`.
-- **Note**: The notebook encountered a `ModuleNotFoundError: No module named 'pandas.io.formats.csvs'` during this step, which may indicate an issue with the pandas version or environment setup that needs to be resolved for the export to succeed.
+### Tests
+
+- **tests/conftest.py**: Configuración de fixtures comunes para todos los tests.
+- **tests/test_elasticsearch.py**: Tests para la conexión y operaciones básicas con Elasticsearch.
+- **tests/test_emotion_analysis.py**: Tests para el análisis de emociones en textos.
+- **tests/test_emotion_endpoint.py**: Tests para el endpoint de análisis de emociones.
+- **tests/test_tweets_endpoint.py**: Tests para el endpoint de obtención de tweets.
+
+## Características Principales
+
+### Obtención de Tweets
+
+- Filtrado por rango de fechas en formato YYYY-MM-DD
+- Paginación mediante límite de resultados
+- Estructura de respuesta consistente con metadatos
+
+### Análisis de Emociones
+
+- Utiliza un modelo pre-entrenado de `transformers` para clasificar las emociones
+- Soporta filtrado por fechas y limitación del número de tweets
+- Guarda resultados del análisis en Elasticsearch para consultas posteriores
+
+### Validación y Manejo de Errores
+
+- Validación de formatos de fechas (YYYY-MM-DD)
+- Validación de límites para paginación
+- Manejo adecuado de errores HTTP
+
+## Modelos de Datos
+
+### Tweet
+```
+{
+  "id": string,
+  "user": {
+    "username": string,
+    "handle": string,
+    "verified": boolean
+  },
+  "content": string,
+  "created_at": string,
+  "metrics": {
+    "likes": integer,
+    "retweets": integer,
+    "replies": integer,
+    "emotion": string,
+    "stance": string
+  }
+}
+```
+
+### Respuesta de Análisis de Emociones
+```
+{
+  "message": string,
+  "processed": integer
+}
+```
+
+## Cambios Recientes
+
+En la última actualización, se realizaron las siguientes mejoras:
+
+1. **Formato de fechas**:
+   - Cambiado el formato de ISO 8601 a YYYY-MM-DD para simplificar el uso.
+   - Añadida conversión automática a hora inicio/fin del día para búsquedas más intuitivas.
+
+2. **Estructura de usuario**:
+   - Implementado un modelo UserInfo más completo con username, handle y verified.
+   - Mejorado el procesamiento de información de usuario en los endpoints.
+
+3. **Mejoras en tests**:
+   - Ajustados los fixtures para asegurar que los datos de prueba sean consistentes.
+   - Corregidos los tests para usar el nuevo formato de fechas y estructura de datos.
+
+4. **Manejo de errores**:
+   - Mejorada la propagación de errores HTTP para mejor información al cliente.
+   - Añadido logging más detallado para facilitar la depuración.
+
+## Requerimientos
+
+- Python 3.11+
+- FastAPI
+- Elasticsearch 8.x
+- Transformers (Hugging Face)
+- Pytest (para tests)
+
+## Despliegue
+
+El proyecto incluye un archivo `docker-compose.yml` para facilitar el despliegue en entornos de desarrollo o producción.
+
+```bash
+docker-compose up -d
+```

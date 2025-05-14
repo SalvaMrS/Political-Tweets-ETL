@@ -2,12 +2,32 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from elasticsearch_service import get_es_client, ensure_index, index_tweet
 from logger import setup_logger
+from routes.tweets import router as tweets_router
 import time
 import json
 from pathlib import Path
+from contextlib import asynccontextmanager
 
-app = FastAPI()
 logger = setup_logger("api")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        es = get_es_client()
+        ensure_index(es)
+        logger.info("Aplicación iniciada correctamente")
+    except Exception as e:
+        logger.error(f"Error al iniciar la aplicación: {str(e)}")
+        raise
+    yield
+    # Shutdown
+    logger.info("Aplicación finalizada")
+
+app = FastAPI(lifespan=lifespan)
+
+# Incluir el router de tweets
+app.include_router(tweets_router)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -21,16 +41,6 @@ async def log_requests(request: Request, call_next):
     )
     
     return response
-
-@app.on_event("startup")
-async def startup_event():
-    try:
-        es = get_es_client()
-        ensure_index(es)
-        logger.info("Aplicación iniciada correctamente")
-    except Exception as e:
-        logger.error(f"Error al iniciar la aplicación: {str(e)}")
-        raise
 
 @app.post("/load-tweets")
 async def load_tweets():
@@ -62,6 +72,10 @@ async def load_tweets():
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    # No manejar HTTPException, dejar que FastAPI lo maneje
+    if isinstance(exc, HTTPException):
+        raise exc
+        
     logger.error(f"Error no manejado: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=500,

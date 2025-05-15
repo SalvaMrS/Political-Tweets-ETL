@@ -40,6 +40,20 @@ El proyecto está organizado en varios grupos de archivos, cada uno con funciona
 - Paginación mediante límite de resultados
 - Estructura de respuesta consistente con metadatos
 
+### Análisis de Datos y Emociones
+
+En los notebooks se realizaron las siguientes actividades:
+
+- **Carga de Datos**: Se cargaron los tweets desde un archivo CSV, asegurando que se mantuvieran todos los datos originales para su posterior análisis.
+
+- **Limpieza de Datos**: Se implementaron procesos para eliminar duplicados y manejar valores nulos, garantizando la calidad de los datos antes de su análisis.
+
+- **Análisis de Emociones**: Se utilizó un modelo de clasificación de emociones basado en transformers para analizar los tweets. Este modelo permitió identificar emociones como alegría, tristeza, enojo, entre otras, proporcionando una comprensión más profunda del sentimiento detrás de los tweets.
+
+- **Visualización de Datos**: Se generaron gráficos y visualizaciones para representar las emociones y tendencias en los tweets, facilitando la interpretación de los resultados.
+
+- **Exportación de Resultados**: Finalmente, los resultados del análisis se exportaron a un nuevo archivo CSV para su uso posterior.
+
 ### Análisis de Emociones
 
 - Utiliza un modelo pre-entrenado de `transformers` para clasificar las emociones

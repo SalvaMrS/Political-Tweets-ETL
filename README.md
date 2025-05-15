@@ -52,6 +52,48 @@ El proyecto está organizado en varios grupos de archivos, cada uno con funciona
 - Validación de límites para paginación
 - Manejo adecuado de errores HTTP
 
+### Informe de Notas
+
+**Informe de Notas**
+
+**Ingesta y almacenamiento**
+- Se cargó toda la información de los tweets directamente en un índice de Elasticsearch (tweets). Esta decisión se tomó para conservar todos los datos originales y poder explorarlos o reutilizarlos en el futuro sin perder contexto.
+
+- No se realizó ningún proceso de limpieza o normalización de los datos previo a su almacenamiento. La idea fue mantener la integridad original del contenido tal como fue extraído.
+
+**Clasificación de emociones**
+- Se implementó un endpoint /classify que recibe un tweet y devuelve su emoción clasificada utilizando un modelo de Hugging Face (j-hartmann/emotion-english-distilroberta-base).
+
+- El modelo resultó ser suficientemente preciso para un prototipo y demostró ser fácil de integrar con FastAPI.
+
+**Detección de postura (Stance Detection)**
+- Se intentó implementar un endpoint adicional para detectar la postura del autor del tweet frente al tema. La idea era clasificar el texto como "a favor", "en contra" o "neutral".
+
+- Sin embargo, surgieron dos limitantes:
+
+  - Capacidad computacional: Cargar modelos grandes (como LLaMA) de forma local resultó inviable con los recursos disponibles.
+
+  - Tiempo: Para obtener resultados confiables, era necesario realizar fine-tuning o ajustar un modelo existente, lo cual no fue posible dentro del plazo.
+
+**Contenedores y entorno de ejecución**
+- Se diseñó una solución contenida en Docker. Primero se levantó Elasticsearch en un contenedor individual para pruebas.
+
+- Luego, se desarrolló un contenedor unificado con la API de FastAPI y Elasticsearch, simplificando la ejecución y garantizando que todo el sistema pueda correrse localmente sin dependencias externas.
+
+**Desafíos encontrados**
+- Uno de los principales retos fue realizar tests para los endpoints de FastAPI, especialmente aquellos que dependían de la conexión a Elasticsearch. Hubo varios errores relacionados con la conexión, tiempos de espera y sincronización de los servicios durante los tests automatizados.
+
+- También hubo dificultades iniciales con la compatibilidad de algunas librerías con Python 3.11, pero se resolvieron especificando las versiones exactas en requirements.txt.
+
+**Posibles mejoras con más tiempo**
+- Realizaría un fine-tuning de un modelo como LLaMA sobre un dataset de tweets políticos etiquetados para mejorar el rendimiento en la tarea de stance detection.
+
+- Otra opción sería generar datos sintéticos que simulen interacciones políticas para entrenar una IA adaptada al dominio sin necesidad de usar modelos grandes directamente.
+
+- Implementaría un sistema de monitoring y logging estructurado para tener trazabilidad en la API y facilitar el debugging en producción.
+
+- Agregaría una capa de preprocesamiento opcional para normalizar textos, eliminar ruido y mejorar la entrada al modelo.
+
 ## Modelos de Datos
 
 ### Tweet
@@ -83,38 +125,21 @@ El proyecto está organizado en varios grupos de archivos, cada uno con funciona
 }
 ```
 
-## Cambios Recientes
-
-En la última actualización, se realizaron las siguientes mejoras:
-
-1. **Formato de fechas**:
-   - Cambiado el formato de ISO 8601 a YYYY-MM-DD para simplificar el uso.
-   - Añadida conversión automática a hora inicio/fin del día para búsquedas más intuitivas.
-
-2. **Estructura de usuario**:
-   - Implementado un modelo UserInfo más completo con username, handle y verified.
-   - Mejorado el procesamiento de información de usuario en los endpoints.
-
-3. **Mejoras en tests**:
-   - Ajustados los fixtures para asegurar que los datos de prueba sean consistentes.
-   - Corregidos los tests para usar el nuevo formato de fechas y estructura de datos.
-
-4. **Manejo de errores**:
-   - Mejorada la propagación de errores HTTP para mejor información al cliente.
-   - Añadido logging más detallado para facilitar la depuración.
-
-## Requerimientos
-
-- Python 3.11+
-- FastAPI
-- Elasticsearch 8.x
-- Transformers (Hugging Face)
-- Pytest (para tests)
-
 ## Despliegue
-
 El proyecto incluye un archivo `docker-compose.yml` para facilitar el despliegue en entornos de desarrollo o producción.
 
-```bash
-docker-compose up -d
-```
+### Instrucciones para Iniciar el Proyecto
+
+1. Asegúrate de tener Docker y Docker Compose instalados en tu máquina.
+2. Clona el repositorio y navega a la carpeta del proyecto:
+   
+   ```bash
+   git clone <URL_DEL_REPOSITORIO>
+   cd Political-Tweets-ETL
+   ```
+3. Construye y levanta los contenedores:
+   
+   ```bash
+   docker-compose up -d
+   ```
+4. Accede a la API en `http://localhost:8000` y a Elasticsearch en `http://localhost:9200`. Puedes acceder a la documentacion de la API en `http://localhost:8000/docs`

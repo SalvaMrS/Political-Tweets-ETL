@@ -74,7 +74,7 @@ def validate_date(date_str: Optional[str], is_start: bool = True) -> None:
                 detail=f"Formato de fecha {date_type} inválido. Use el formato YYYY-MM-DD"
             )
 
-@router.post(
+@router.get(
     "/emotion",
     response_model=EmotionResponse,
     summary="Analizar emociones en tweets",

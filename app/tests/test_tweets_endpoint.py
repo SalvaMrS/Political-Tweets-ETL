@@ -138,7 +138,7 @@ def test_get_tweets_basic(setup_test_tweets):
     Test básico para obtener tweets sin filtros.
     Verifica que el endpoint devuelve una lista de tweets y el total.
     """
-    response = client.get("/api/v1/tweets")
+    response = client.get("/tweets")
     assert response.status_code == 200
     data = response.json()
     assert "tweets" in data
@@ -154,7 +154,7 @@ def test_get_tweets_with_date_filter(setup_test_tweets):
     # Fecha de hoy en formato YYYY-MM-DD
     today = datetime.now().strftime("%Y-%m-%d")
     
-    response = client.get(f"/api/v1/tweets?start_date={today}&end_date={today}")
+    response = client.get(f"/tweets?start_date={today}&end_date={today}")
     assert response.status_code == 200
     data = response.json()
     assert "tweets" in data
@@ -171,13 +171,13 @@ def test_get_tweets_pagination(setup_test_tweets):
     Verifica que el endpoint maneja correctamente la paginación de resultados.
     """
     # Primera página
-    response1 = client.get("/api/v1/tweets?limit=1")
+    response1 = client.get("/tweets?limit=1")
     assert response1.status_code == 200
     data1 = response1.json()
     assert len(data1["tweets"]) == 1
     
     # Segunda página
-    response2 = client.get("/api/v1/tweets?limit=1")
+    response2 = client.get("/tweets?limit=1")
     assert response2.status_code == 200
     data2 = response2.json()
     
@@ -190,7 +190,7 @@ def test_get_tweets_invalid_date_format():
     Test para verificar el manejo de fechas inválidas.
     Verifica que el endpoint valida correctamente el formato de las fechas.
     """
-    response = client.get("/api/v1/tweets?start_date=invalid-date")
+    response = client.get("/tweets?start_date=invalid-date")
     assert response.status_code == 422
 
 def test_get_tweets_invalid_limit():
@@ -198,7 +198,7 @@ def test_get_tweets_invalid_limit():
     Test para verificar el manejo de límites inválidos.
     Verifica que el endpoint valida correctamente el tipo de dato del límite.
     """
-    response = client.get("/api/v1/tweets?limit=invalid")
+    response = client.get("/tweets?limit=invalid")
     assert response.status_code == 422
 
 def test_get_tweets_response_structure(setup_test_tweets):
@@ -206,7 +206,7 @@ def test_get_tweets_response_structure(setup_test_tweets):
     Test para verificar la estructura de la respuesta.
     Verifica que la respuesta contiene todos los campos requeridos y opcionales.
     """
-    response = client.get("/api/v1/tweets")
+    response = client.get("/tweets")
     assert response.status_code == 200
     data = response.json()
     

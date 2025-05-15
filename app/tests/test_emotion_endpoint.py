@@ -78,7 +78,7 @@ def test_emotion_endpoint_success(sample_tweet):
     Args:
         sample_tweet: Tweet de prueba (fixture)
     """
-    response = client.post("/api/v1/emotion", json={})
+    response = client.get("/emotion")
     assert response.status_code == 200
     data = response.json()
     assert "message" in data
@@ -96,13 +96,7 @@ def test_emotion_endpoint_with_dates(sample_tweet):
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     
     # Consulta con fecha de hoy
-    response = client.post(
-        "/api/v1/emotion",
-        json={
-            "start_date": yesterday,
-            "end_date": tomorrow
-        }
-    )
+    response = client.get(f"/emotion?start_date={yesterday}&end_date={tomorrow}")
     assert response.status_code == 200
     data = response.json()
     assert "message" in data
@@ -117,10 +111,7 @@ def test_emotion_endpoint_with_limit(sample_tweet):
     Args:
         sample_tweet: Tweet de prueba (fixture)
     """
-    response = client.post(
-        "/api/v1/emotion",
-        json={"limit": 1}
-    )
+    response = client.get("/emotion?limit=1")
     assert response.status_code == 200
     data = response.json()
     assert "message" in data
@@ -135,13 +126,7 @@ def test_emotion_endpoint_no_tweets():
     # Usamos una fecha muy futura para asegurar que no haya tweets
     future_date = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
     
-    response = client.post(
-        "/api/v1/emotion",
-        json={
-            "start_date": future_date,
-            "end_date": future_date
-        }
-    )
+    response = client.get(f"/emotion?start_date={future_date}&end_date={future_date}")
     assert response.status_code == 200
     data = response.json()
     assert "message" in data
@@ -153,13 +138,7 @@ def test_emotion_endpoint_invalid_dates():
     Prueba el endpoint con fechas inválidas.
     Verifica que el endpoint valide correctamente el formato de las fechas.
     """
-    response = client.post(
-        "/api/v1/emotion",
-        json={
-            "start_date": "invalid-date",
-            "end_date": "2024-03-14"
-        }
-    )
+    response = client.get("/emotion?start_date=invalid-date")
     assert response.status_code == 422
 
 def test_emotion_endpoint_invalid_limit():
@@ -167,10 +146,7 @@ def test_emotion_endpoint_invalid_limit():
     Prueba el endpoint con un límite inválido.
     Verifica que el endpoint valide correctamente el tipo de dato del límite.
     """
-    response = client.post(
-        "/api/v1/emotion",
-        json={"limit": "not-a-number"}
-    )
+    response = client.get("/emotion?limit=not-a-number")
     assert response.status_code == 422
 
 def test_emotion_analysis_results(es_client, sample_tweet):
@@ -186,7 +162,7 @@ def test_emotion_analysis_results(es_client, sample_tweet):
     es_client.index(index=INDEX_NAME, id=sample_tweet["id"], document=sample_tweet, refresh=True)
     
     # Ejecutar análisis sin filtros para incluir el tweet de prueba
-    response = client.post("/api/v1/emotion", json={})
+    response = client.get("/emotion")
     assert response.status_code == 200
     
     # Verificar que el tweet fue actualizado con la emoción

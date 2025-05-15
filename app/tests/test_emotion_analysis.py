@@ -6,13 +6,13 @@ Verifica el funcionamiento del clasificador de emociones y la estructura de sus 
 import pytest
 import os
 import json
+import time
 from datetime import datetime
 from elasticsearch_service import get_es_client, INDEX_NAME
 from transformers import pipeline
 from typing import Dict, Any, List
 
 # Constantes para pruebas
-SAMPLE_SIZE = 5  # Número de tweets a usar en las pruebas
 RESULTS_DIR = os.path.join('tests', 'results')
 
 @pytest.fixture
@@ -41,9 +41,9 @@ def emotion_classifier():
     )
 
 @pytest.fixture
-def sample_tweets(es_client) -> List[Dict[str, Any]]:
+def all_tweets(es_client) -> List[Dict[str, Any]]:
     """
-    Fixture para obtener una muestra de tweets para pruebas.
+    Fixture para obtener todos los tweets para pruebas.
     
     Args:
         es_client: Cliente de Elasticsearch (fixture)
@@ -55,7 +55,7 @@ def sample_tweets(es_client) -> List[Dict[str, Any]]:
         index=INDEX_NAME,
         body={
             "query": {"match_all": {}},
-            "size": SAMPLE_SIZE
+            "size": 10000  # Aumentar el tamaño para obtener más tweets
         }
     )
     return result['hits']['hits']
@@ -70,23 +70,29 @@ def test_emotion_classifier_setup(emotion_classifier):
     """
     assert emotion_classifier is not None, "El clasificador de emociones no se configuró correctamente"
 
-def test_emotion_analysis_on_tweets(emotion_classifier, sample_tweets):
+def test_emotion_analysis_on_tweets(emotion_classifier, all_tweets):
     """
-    Prueba el análisis de emociones en una muestra de tweets.
+    Prueba el análisis de emociones en todos los tweets.
     Verifica que el clasificador procese correctamente cada tweet y devuelva resultados válidos.
     
     Args:
         emotion_classifier: Clasificador de emociones (fixture)
-        sample_tweets: Lista de tweets para analizar (fixture)
+        all_tweets: Lista de tweets para analizar (fixture)
     """
-    assert sample_tweets, "No se encontraron tweets para analizar"
+    assert all_tweets, "No se encontraron tweets para analizar"
     
-    for hit in sample_tweets:
+    results = []
+    total_time = 0
+    
+    for hit in all_tweets:
         tweet = hit['_source']
         content = tweet['payload']['tweet']['content']
         
-        # Obtener predicción de emociones
+        # Medir tiempo de inferencia
+        start_time = time.time()
         emotions = emotion_classifier(content)[0]
+        inference_time = time.time() - start_time
+        total_time += inference_time
         
         # Verificar estructura de la respuesta
         assert isinstance(emotions, list), "La respuesta del clasificador debe ser una lista"
@@ -98,22 +104,6 @@ def test_emotion_analysis_on_tweets(emotion_classifier, sample_tweets):
             assert 'score' in emotion, "Cada emoción debe tener un score"
             assert isinstance(emotion['score'], float), "El score debe ser un float"
             assert 0 <= emotion['score'] <= 1, "El score debe estar entre 0 y 1"
-
-def test_emotion_analysis_results_structure(emotion_classifier, sample_tweets):
-    """
-    Prueba la estructura de los resultados del análisis de emociones.
-    Verifica que los resultados tengan el formato esperado y contengan todos los campos necesarios.
-    
-    Args:
-        emotion_classifier: Clasificador de emociones (fixture)
-        sample_tweets: Lista de tweets para analizar (fixture)
-    """
-    results = []
-    
-    for hit in sample_tweets:
-        tweet = hit['_source']
-        content = tweet['payload']['tweet']['content']
-        emotions = emotion_classifier(content)[0]
         
         # Encontrar la emoción dominante
         top_emotion = max(emotions, key=lambda x: x['score'])
@@ -121,61 +111,7 @@ def test_emotion_analysis_results_structure(emotion_classifier, sample_tweets):
         result = {
             'tweet_id': tweet['id'],
             'content': content,
-            'emotion_analysis': {
-                'dominant_emotion': {
-                    'label': top_emotion['label'],
-                    'score': float(top_emotion['score'])
-                },
-                'all_emotions': [
-                    {
-                        'label': emotion['label'],
-                        'score': float(emotion['score'])
-                    }
-                    for emotion in sorted(emotions, key=lambda x: x['score'], reverse=True)
-                ]
-            }
-        }
-        
-        results.append(result)
-    
-    # Verificar estructura de los resultados
-    for result in results:
-        assert 'tweet_id' in result, "Cada resultado debe tener un tweet_id"
-        assert 'content' in result, "Cada resultado debe tener un content"
-        assert 'emotion_analysis' in result, "Cada resultado debe tener emotion_analysis"
-        
-        emotion_analysis = result['emotion_analysis']
-        assert 'dominant_emotion' in emotion_analysis, "Debe haber una emoción dominante"
-        assert 'all_emotions' in emotion_analysis, "Debe haber una lista de todas las emociones"
-        
-        dominant = emotion_analysis['dominant_emotion']
-        assert 'label' in dominant, "La emoción dominante debe tener un label"
-        assert 'score' in dominant, "La emoción dominante debe tener un score"
-        
-        all_emotions = emotion_analysis['all_emotions']
-        assert isinstance(all_emotions, list), "all_emotions debe ser una lista"
-        assert len(all_emotions) > 0, "Debe haber al menos una emoción en all_emotions"
-
-def test_emotion_analysis_results_persistence(emotion_classifier, sample_tweets):
-    """
-    Prueba la persistencia de los resultados del análisis.
-    Verifica que los resultados se guarden correctamente en un archivo JSON.
-    
-    Args:
-        emotion_classifier: Clasificador de emociones (fixture)
-        sample_tweets: Lista de tweets para analizar (fixture)
-    """
-    results = []
-    
-    for hit in sample_tweets:
-        tweet = hit['_source']
-        content = tweet['payload']['tweet']['content']
-        emotions = emotion_classifier(content)[0]
-        top_emotion = max(emotions, key=lambda x: x['score'])
-        
-        result = {
-            'tweet_id': tweet['id'],
-            'content': content,
+            'inference_time': inference_time,
             'emotion_analysis': {
                 'dominant_emotion': {
                     'label': top_emotion['label'],
@@ -191,6 +127,13 @@ def test_emotion_analysis_results_persistence(emotion_classifier, sample_tweets)
             }
         }
         results.append(result)
+    
+    # Calcular estadísticas
+    avg_time = total_time / len(all_tweets)
+    print(f"\nEstadísticas de procesamiento:")
+    print(f"Total de tweets procesados: {len(all_tweets)}")
+    print(f"Tiempo total de procesamiento: {total_time:.2f} segundos")
+    print(f"Tiempo promedio por tweet: {avg_time:.2f} segundos")
     
     # Crear directorio results si no existe
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -202,6 +145,8 @@ def test_emotion_analysis_results_persistence(emotion_classifier, sample_tweets)
     # Guardar resultados
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
+    
+    print(f"\nResultados guardados en: {output_file}")
     
     # Verificar que el archivo se creó correctamente
     assert os.path.exists(output_file), "El archivo de resultados no se creó"

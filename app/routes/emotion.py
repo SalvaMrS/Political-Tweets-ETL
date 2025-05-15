@@ -93,21 +93,30 @@ def validate_date(date_str: Optional[str], is_start: bool = True) -> None:
     response_description="Mensaje con el resumen del procesamiento y número de tweets procesados"
 )
 async def analyze_emotions(
-    request: EmotionRequest = Body(
+    start_date: Optional[str] = Query(
         None,
-        description="Parámetros de filtrado para el análisis de emociones",
-        example={
-            "start_date": "2024-03-14",
-            "end_date": "2024-03-15",
-            "limit": 100
-        }
+        description="Fecha de inicio para filtrar tweets (formato YYYY-MM-DD)",
+        example="2024-03-14"
+    ),
+    end_date: Optional[str] = Query(
+        None,
+        description="Fecha final para filtrar tweets (formato YYYY-MM-DD)",
+        example="2024-03-15"
+    ),
+    limit: Optional[int] = Query(
+        None,
+        description="Número máximo de tweets a procesar",
+        example=100,
+        gt=0
     )
 ) -> EmotionResponse:
     """
     Analiza las emociones en los tweets almacenados en Elasticsearch.
     
     Args:
-        request (EmotionRequest): Parámetros de filtrado para el análisis
+        start_date (Optional[str]): Fecha de inicio para filtrar tweets (formato YYYY-MM-DD)
+        end_date (Optional[str]): Fecha final para filtrar tweets (formato YYYY-MM-DD)
+        limit (Optional[int]): Número máximo de tweets a procesar
         
     Returns:
         EmotionResponse: Mensaje con el resumen del procesamiento y número de tweets procesados
@@ -116,27 +125,23 @@ async def analyze_emotions(
         HTTPException: Si hay errores en el formato de fechas o en el procesamiento
     """
     try:
-        # Si no se proporciona un objeto de solicitud, crear uno vacío
-        if request is None:
-            request = EmotionRequest()
-        
         # Validar formato de fechas
-        validate_date(request.start_date, True)
-        validate_date(request.end_date, False)
+        validate_date(start_date, True)
+        validate_date(end_date, False)
         
         es_client = get_es_client()
         start_time = time.time()
         
         # Construir la consulta de Elasticsearch
         query = {"match_all": {}}
-        if request.start_date or request.end_date:
+        if start_date or end_date:
             range_query = {"range": {"meta.created_at": {}}}
             
-            if request.start_date:
-                range_query["range"]["meta.created_at"]["gte"] = f"{request.start_date}T00:00:00"
+            if start_date:
+                range_query["range"]["meta.created_at"]["gte"] = f"{start_date}T00:00:00"
             
-            if request.end_date:
-                range_query["range"]["meta.created_at"]["lte"] = f"{request.end_date}T23:59:59"
+            if end_date:
+                range_query["range"]["meta.created_at"]["lte"] = f"{end_date}T23:59:59"
             
             query = range_query
         
@@ -147,7 +152,7 @@ async def analyze_emotions(
             "index": INDEX_NAME,
             "query": query,
             "_source": ["payload.tweet.content", "id", "metrics", "meta", "user"],
-            "size": request.limit if request.limit else DEFAULT_LIMIT
+            "size": limit if limit else DEFAULT_LIMIT
         }
         
         logger.info(f"Buscando tweets con parámetros: {search_params}")

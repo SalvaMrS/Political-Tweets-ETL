@@ -54,8 +54,8 @@ app = FastAPI(
 )
 
 # Registro de routers para diferentes funcionalidades
-app.include_router(tweets_router, prefix="/api/v1", tags=["tweets"])
-app.include_router(emotion_router, prefix="/api/v1", tags=["emotion"])
+app.include_router(tweets_router, tags=["tweets"])
+app.include_router(emotion_router, tags=["emotion"])
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -83,50 +83,7 @@ async def log_requests(request: Request, call_next):
     
     return response
 
-@app.post("/api/v1/load-tweets", tags=["tweets"])
-async def load_tweets() -> Dict[str, str]:
-    """
-    Endpoint para cargar tweets desde un archivo JSON a Elasticsearch.
-    
-    Lee tweets desde el archivo tweets_dataset.json y los indexa en Elasticsearch.
-    Maneja errores individuales por tweet sin detener el proceso completo.
-    
-    Returns:
-        Dict[str, str]: Mensaje con el resultado de la operación
-        
-    Raises:
-        HTTPException: 
-            - 404: Si no se encuentra el archivo de tweets
-            - 500: Si ocurre un error durante el proceso de carga
-    """
-    try:
-        es = get_es_client()
-        json_path = Path("tweets_dataset.json")
-        
-        if not json_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail="Archivo tweets_dataset.json no encontrado"
-            )
-        
-        with open(json_path, 'r') as f:
-            tweets = json.load(f)
-        
-        indexed_count = 0
-        for tweet in tweets:
-            try:
-                index_tweet(es, tweet)
-                indexed_count += 1
-            except Exception as e:
-                logger.error(f"Error al indexar tweet {tweet.get('id')}: {str(e)}")
-                continue
-        
-        logger.info(f"Se indexaron {indexed_count} tweets exitosamente")
-        return {"message": f"Se indexaron {indexed_count} tweets exitosamente"}
-    
-    except Exception as e:
-        logger.error(f"Error al cargar tweets: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:

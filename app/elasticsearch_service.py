@@ -95,7 +95,6 @@ def get_es_client() -> Elasticsearch:
             verify_certs=ES_VERIFY_CERTS,
             basic_auth=auth,
             ssl_show_warn=ES_SSL_WARN,
-            timeout=30  # Timeout de 30 segundos
         )
         
         # Verificar conexión
